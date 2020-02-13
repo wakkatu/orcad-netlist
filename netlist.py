@@ -51,8 +51,8 @@ class Node(NetlistObj):
         if not isinstance(net, Net):
             net = Net.objs.get(net)
         if hasattr(self, 'net'):
-            self.chip.nodes[self.net.name] = None
-            self.net.nodes[self.chip.name] = None
+            del self.chip.nodes[self.net.name]
+            del self.net.nodes[self.chip.name]
         self.net = net
         if net is not None:
             self.net.nodes[self.chip.name] = self
@@ -95,38 +95,42 @@ def filter_nodes(nodes, key_objs):
 
 def set_chip_transparent(net, chip):
     """
-    ... - net - node - chip - client_node - client_net - client_node - ...
+    ... - net - node - chip - node - client_net - client_node - ...
     to
-    ... net - target_node - ...
+    ... - net - client_node - ...
     """
     if len(chip.nodes) != 2:
-        log.error("set_chip_transparent: %r too many nodes" % (chip))
+        log.error("set_chip_transparent(%r,%r): too many nodes" % (net, chip))
         return False
+    log.debug("set_chip_transparent(%r,%r)" % (net, chip))
     client_net = filter_nodes(chip.nodes, [net])[0].net
     client_node = filter_nodes(client_net.nodes, [chip])[0]
     client_node.attach_net(net)
-    net.nodes[chip.name] = None
+    del net.nodes[chip.name]
     return True
 
 def numerical_sorting_key(k):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', k)]
 
-def sorted_rows(k):
+def rows_sorting_key(k):
     return map(numerical_sorting_key, k)
 
-def dump_nets(nets, host_chip, f, key=None):
-    fcsv = csv.writer(f)
+def extract_rows(nets, host_chip):
     rows = []
     for net_name in nets:
         net = Net.objs[net_name]
         host_node = net.nodes[host_chip]
         client_node = filter_nodes(net.nodes, [host_chip])[0]
         rows.append([net.name, host_node.desc, client_node.chip.name, client_node.desc])
+    return rows
+
+def dump_rows(rows, f, key=None):
+    fcsv = csv.writer(f)
     for row in sorted(rows, key=key):
         log.debug("csv.writerow: %r" % row)
         fcsv.writerow(row)
 
-def netlist_main(argv=None, dump_f=dump_nets, key_f=sorted_rows):
+def netlist_main(argv=None, extract_f=extract_rows, key_f=rows_sorting_key, dump_f=dump_rows):
     import argparse
     import sys
 
@@ -159,8 +163,22 @@ def netlist_main(argv=None, dump_f=dump_nets, key_f=sorted_rows):
                 continue
             nets.append(net_name)
 
+    for net_name in nets[:]:
+        net = Net.objs[net_name]
+        for node in net.nodes.values():
+            for pat in args.exclude_chip:
+                if pat.match(node.chip.name):
+                    set_chip_transparent(net, node.chip)
+                    break
+
+    global data_rows
+    data_rows = []
+
     if len(nets):
-        dump_f(nets, args.chip, args.output_file, key=key_f)
+        data_rows = extract_f(nets, args.chip)
+
+    if len(data_rows):
+        dump_f(data_rows, args.output_file, key=key_f)
 
     import os
     if os.isatty(1) and args.interactive:
