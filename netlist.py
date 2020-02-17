@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import csv
 import logging
 import re
@@ -113,9 +115,16 @@ def numerical_sorting_key(k):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', k)]
 
 def rows_sorting_key(k):
+    """
+    A python key function to sort rows.
+    """
     return map(numerical_sorting_key, k)
 
 def extract_rows(nets, host_chip):
+    """
+    Convert nets (list of Net object) to data rows.
+    Default function returns a list of list of string.
+    """
     rows = []
     for net_name in nets:
         net = Net.objs[net_name]
@@ -125,6 +134,10 @@ def extract_rows(nets, host_chip):
     return rows
 
 def dump_rows(rows, f, key=None):
+    """
+    Write rows to file f.
+    Default function writes to file with CSV format.
+    """
     fcsv = csv.writer(f)
     for row in sorted(rows, key=key):
         log.debug("csv.writerow: %r" % row)
@@ -139,8 +152,8 @@ def netlist_main(argv=None, extract_f=extract_rows, key_f=rows_sorting_key, dump
     parser.add_argument('-v', '--verbose', action='count', default=0)
     parser.add_argument('-C', '--chip')
     parser.add_argument('-N', '--match-net', type=re.compile, metavar='REGEX')
-    parser.add_argument('-X', '--exclude-chip', nargs='+', type=re.compile,
-        default=[], metavar='REGEX')
+    parser.add_argument('-X', '--exclude-chip', type=re.compile,
+        metavar='REGEX')
     parser.add_argument('-f', '--input-file', default="pstxnet.dat",
         metavar='pstxnet.dat')
     parser.add_argument('-o', '--output-file', default=sys.stdout,
@@ -163,13 +176,11 @@ def netlist_main(argv=None, extract_f=extract_rows, key_f=rows_sorting_key, dump
                 continue
             nets.append(net_name)
 
-    for net_name in nets[:]:
+    for net_name in nets:
         net = Net.objs[net_name]
         for node in net.nodes.values():
-            for pat in args.exclude_chip:
-                if pat.match(node.chip.name):
-                    set_chip_transparent(net, node.chip)
-                    break
+            if args.exclude_chip and pat.match(node.chip.name):
+                set_chip_transparent(net, node.chip)
 
     global data_rows
     data_rows = []
